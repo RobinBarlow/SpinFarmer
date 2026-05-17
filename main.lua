@@ -11,6 +11,8 @@ getgenv().AutoBuyActive = false
 getgenv().SelectedTiers = {["Secret"] = true, ["Exotic"] = true, ["Divine"] = true, ["Prismatic"] = true}
 getgenv().StopMode = "OrBetter"
 
+local LastTargetSeed = nil
+
 local success, plantData = pcall(require, PlantsModule)
 local PflanzenSeltenheiten = {}
 if success and type(plantData) == "table" then
@@ -170,7 +172,8 @@ ModeBtn.MouseButton1Click:Connect(function()
 end)
 
 local function resumeRolling()
-    task.wait(0.5)
+    task.wait(0.3)
+    LastTargetSeed = nil
     if not getgenv().AutoRollActive then
         getgenv().AutoRollActive = true
         ToggleBtn.BackgroundColor3 = Color3.fromRGB(15, 60, 30)
@@ -179,10 +182,14 @@ local function resumeRolling()
     end
 end
 
-BuyEvent.OnClientEvent:Connect(function(...)
-    if not getgenv().AutoRollActive then
-        print("🛒 Kauf vom Spieler oder Auto-Buy registriert! Setze Auto-Roll fort...")
-        resumeRolling()
+BuyEvent.OnClientEvent:Connect(function(boughtSeedName)
+    if not getgenv().AutoRollActive and LastTargetSeed then
+        if boughtSeedName == LastTargetSeed or tostring(boughtSeedName):lower():find(tostring(LastTargetSeed):lower()) then
+            print("🛒 Korrekter Ziel-Seed (" .. tostring(LastTargetSeed) .. ") gekauft! Setze Auto-Roll fort...")
+            resumeRolling()
+        else
+            print("Ignoring buy event for unrelated seed: " .. tostring(boughtSeedName))
+        end
     end
 end)
 
@@ -212,6 +219,7 @@ RollEvent.OnClientEvent:Connect(function(tab)
                 
                 if matchFound then
                     print("🎉 TARGET FOUND: " .. name .. " (" .. rStr .. ")")
+                    LastTargetSeed = name
                     getgenv().AutoRollActive = false
                     ToggleBtn.BackgroundColor3 = Color3.fromRGB(40, 15, 15)
                     ToggleBtn.Text = "AUTO-ROLL: OFF"
@@ -219,7 +227,7 @@ RollEvent.OnClientEvent:Connect(function(tab)
                     
                     if getgenv().AutoBuyActive then
                         task.wait(0.1)
-                        print("🤖 Auto-Buy triggert für Index [1]!")
+                        print("🤖 Auto-Buy triggert für Ziel-Seed: " .. name)
                         pcall(function() BuyEvent:FireServer(1) end)
                     end
                     break
