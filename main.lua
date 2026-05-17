@@ -1,80 +1,188 @@
--- V-Protocol: The Ultimate Mathematical Bridge (Fix v11.0)
-getgenv().AutoRollByRarity = true
-getgenv().BremsleitungGezogen = false
-
--- EINSTELLUNG: Ab welcher echten Chance stoppen? (z.B. 5000 für alles ab 1 in 5000)
-local MindestChance = 5000
-
+local CoreGui = game:GetService("CoreGui")
 local Remotes = game:GetService("ReplicatedStorage"):WaitForChild("Remotes")
 local RollEvent = Remotes:WaitForChild("RollSeeds")
 local PlantsModule = game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Registry"):WaitForChild("Plants")
 
--- 1. DIE LIVE-MATHE-DATENBANK ANLEGEN
+if CoreGui:FindFirstChild("VProtocolRollUI") then CoreGui.VProtocolRollUI:Destroy() end
+
+getgenv().AutoRollActive = false
+getgenv().SelectedTiers = {
+    ["Secret"] = true,
+    ["Exotic"] = true,
+    ["Divine"] = true,
+    ["Prismatic"] = true
+}
+getgenv().StopMode = "OrBetter" -- Optionen: "Exact" oder "OrBetter"
+
 local success, plantData = pcall(require, PlantsModule)
-local BerechneteLiveChancen = {}
-
--- Diese Funktion sucht im Modul sauber nach der echten Chance (und ignoriert IDs/Preise)
-local function extrahiereEchteChance(tabelle)
-    for k, v in pairs(tabelle) do
-        if type(v) == "number" and v > 0 and v < 1 then
-            -- Wir haben die echte Dezimalzahl gefunden! (z.B. 0.00001)
-            return v
-        elseif type(v) == "table" then
-            local ergebnis = extrahiereEchteChance(v)
-            if ergebnis then return ergebnis end
-        end
-    end
-    return nil
-end
-
+local PflanzenSeltenheiten = {}
 if success and type(plantData) == "table" then
-    print("--- V-PROTOCOL: MATHE-DATENBANK WIRD GELADEN ---")
-    for plantName, subTable in pairs(plantData) do
-        if type(subTable) == "table" then
-            local roherDezimalWert = extrahiereEchteChance(subTable)
-            if roherDezimalWert then
-                -- Umrechnung: 1 / 0.000010 = 100000
-                local echteEingetrageneChance = 1 / roherDezimalWert
-                BerechneteLiveChancen[plantName] = echteEingetrageneChance
-                print(string.format("Mathe-Index: %s -> Echte Chance: 1 in %.1f", tostring(plantName), echteEingetrageneChance))
-            end
+    for name, data in pairs(plantData) do
+        if type(data) == "table" and data.Rarity then
+            PflanzenSeltenheiten[name] = data.Rarity
         end
     end
-else
-    warn("Kritischer Fehler: Plants-Modul konnte nicht geladen werden!")
 end
 
--- Absolute Sicherheits-Fallbacks direkt von deinen Schildern, falls das Modul laggt
-BerechneteLiveChancen["Mushroom"] = 6000
-BerechneteLiveChancen["Mango"] = 4269
-BerechneteLiveChancen["Bamboo"] = 640
-BerechneteLiveChancen["Melon"] = 32
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "VProtocolRollUI"
+ScreenGui.Parent = CoreGui
 
--- 2. DER UNBESTECHLICHE WACHHUND
-local Connection
-Connection = RollEvent.OnClientEvent:Connect(function(tabelleVonServer)
-    if getgenv().BremsleitungGezogen then return end
+local Main = Instance.new("Frame")
+Main.Size = UDim2.new(0, 320, 0, 460)
+Main.Position = UDim2.new(0.5, -160, 0.5, -230)
+Main.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+Main.BorderSizePixel = 2
+Main.BorderColor3 = Color3.fromRGB(0, 255, 150)
+Main.Active = true
+Main.Draggable = true
+Main.Parent = ScreenGui
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -35, 0, 35)
+Title.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+Title.Text = "  V-PROTOCOL MULTI-ROLL"
+Title.TextColor3 = Color3.fromRGB(0, 255, 150)
+Title.TextSize = 13
+Title.Font = Enum.Font.Code
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = Main
+
+local Close = Instance.new("TextButton")
+Close.Size = UDim2.new(0, 35, 0, 35)
+Close.Position = UDim2.new(1, -35, 0, 0)
+Close.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+Close.Text = "X"
+Close.TextColor3 = Color3.fromRGB(255, 255, 255)
+Close.Font = Enum.Font.SourceSansBold
+Close.TextSize = 16
+Close.Parent = Main
+Close.MouseButton1Click:Connect(function() ScreenGui:Destroy() end)
+
+local ToggleBtn = Instance.new("TextButton")
+ToggleBtn.Size = UDim2.new(1, -20, 0, 40)
+ToggleBtn.Position = UDim2.new(0, 10, 0, 45)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(40, 15, 15)
+ToggleBtn.Text = "AUTO-ROLL: OFF"
+ToggleBtn.TextColor3 = Color3.fromRGB(255, 100, 100)
+ToggleBtn.Font = Enum.Font.SourceSansBold
+ToggleBtn.TextSize = 15
+ToggleBtn.Parent = Main
+
+local ModeBtn = Instance.new("TextButton")
+ModeBtn.Size = UDim2.new(1, -20, 0, 30)
+ModeBtn.Position = UDim2.new(0, 10, 0, 90)
+ModeBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+ModeBtn.Text = "MODUS: ODER BESSER (>=)"
+ModeBtn.TextColor3 = Color3.fromRGB(150, 180, 255)
+ModeBtn.Font = Enum.Font.SourceSansBold
+ModeBtn.TextSize = 13
+ModeBtn.Parent = Main
+
+local Scroll = Instance.new("ScrollingFrame")
+Scroll.Size = UDim2.new(1, -20, 1, -165)
+Scroll.Position = UDim2.new(0, 10, 0, 130)
+Scroll.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+Scroll.BorderSizePixel = 0
+Scroll.CanvasSize = UDim2.new(0, 0, 0, 280)
+Scroll.ScrollBarThickness = 6
+Scroll.Parent = Main
+
+local Tiers = {"Common", "Uncommon", "Rare", "Epic", "Legendary", "Secret", "Exotic", "Divine", "Prismatic"}
+local TierRang = {["Common"]=1,["Uncommon"]=2,["Rare"]=3,["Epic"]=4,["Legendary"]=5,["Secret"]=6,["Exotic"]=7,["Divine"]=8,["Prismatic"]=9}
+
+for i, tier in ipairs(Tiers) do
+    local Btn = Instance.new("TextButton")
+    Btn.Size = UDim2.new(1, -10, 0, 25)
+    Btn.Position = UDim2.new(0, 5, 0, (i - 1) * 30)
     
-    -- Wir stellen sicher, dass wir die Liste vom Server bekommen
-    if type(tabelleVonServer) == "table" then
-        for _, pflanzenName in pairs(tabelleVonServer) do
-            -- WICHTIG: Wir filtern hier die Positions-Zahlen (1, 2, 3) heraus!
-            -- Wir reagieren NUR, wenn an dieser Stelle der Text-Name der Pflanze steht!
-            if type(pflanzenName) == "string" then
+    if getgenv().SelectedTiers[tier] then
+        Btn.BackgroundColor3 = Color3.fromRGB(0, 100, 50)
+        Btn.TextColor3 = Color3.fromRGB(0, 255, 150)
+    else
+        Btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+        Btn.TextColor3 = Color3.fromRGB(150, 150, 150)
+    end
+    
+    Btn.Text = "  " .. tier
+    Btn.TextXAlignment = Enum.TextXAlignment.Left
+    Btn.Font = Enum.Font.Code
+    Btn.TextSize = 13
+    Btn.Parent = Scroll
+    
+    Btn.MouseButton1Click:Connect(function()
+        getgenv().SelectedTiers[tier] = not getgenv().SelectedTiers[tier]
+        if getgenv().SelectedTiers[tier] then
+            Btn.BackgroundColor3 = Color3.fromRGB(0, 100, 50)
+            Btn.TextColor3 = Color3.fromRGB(0, 255, 150)
+        else
+            Btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+            Btn.TextColor3 = Color3.fromRGB(150, 150, 150)
+        end
+    end)
+end
+
+ToggleBtn.MouseButton1Click:Connect(function()
+    getgenv().AutoRollActive = not getgenv().AutoRollActive
+    if getgenv().AutoRollActive then
+        ToggleBtn.BackgroundColor3 = Color3.fromRGB(15, 60, 30)
+        ToggleBtn.Text = "AUTO-ROLL: ON"
+        ToggleBtn.TextColor3 = Color3.fromRGB(0, 255, 150)
+    else
+        ToggleBtn.BackgroundColor3 = Color3.fromRGB(40, 15, 15)
+        ToggleBtn.Text = "AUTO-ROLL: OFF"
+        ToggleBtn.TextColor3 = Color3.fromRGB(255, 100, 100)
+    end
+end)
+
+ModeBtn.MouseButton1Click:Connect(function()
+    if getgenv().StopMode == "OrBetter" then
+        getgenv().StopMode = "Exact"
+        ModeBtn.Text = "MODUS: NUR EXAKTE TREFFER (==)"
+        ModeBtn.BackgroundColor3 = Color3.fromRGB(45, 30, 45)
+        ModeBtn.TextColor3 = Color3.fromRGB(255, 150, 255)
+    else
+        getgenv().StopMode = "OrBetter"
+        ModeBtn.Text = "MODUS: ODER BESSER (>=)"
+        ModeBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+        ModeBtn.TextColor3 = Color3.fromRGB(150, 180, 255)
+    end
+end)
+
+local Connection
+Connection = RollEvent.OnClientEvent:Connect(function(tab)
+    if not getgenv().AutoRollActive then return end
+    if type(tab) == "table" then
+        for _, name in pairs(tab) do
+            if type(name) == "string" then
+                local rStr = PflanzenSeltenheiten[name] or "Prismatic"
+                print("Roll: " .. name .. " [" .. rStr .. "]")
                 
-                -- Jetzt holen wir uns die mathematische Chance aus unserer Live-Datenbank!
-                local mathematischeChance = BerechneteLiveChancen[pflanzenName] or 0
+                local matchFound = false
                 
-                print("Roll: " .. tostring(pflanzenName) .. " -> Berechnete Seltenheit: 1 in " .. string.format("%.1f", mathematischeChance))
+                if getgenv().StopMode == "Exact" then
+                    if getgenv().SelectedTiers[rStr] then
+                        matchFound = true
+                    end
+                elseif getgenv().StopMode == "OrBetter" then
+                    local currentRank = TierRang[rStr] or 1
+                    for selectedTier, active in pairs(getgenv().SelectedTiers) do
+                        if active then
+                            local selectedRank = TierRang[selectedTier] or 1
+                            if currentRank >= selectedRank then
+                                matchFound = true
+                                break
+                            end
+                        end
+                    end
+                end
                 
-                -- DER REINE ZAHLENVERGLEICH
-                if mathematischeChance >= MindestChance then
-                    print("🎉 🎉 🎉 V-PROTOCOL MATHE-HIT! NOTBREMSE! 🎉 🎉 🎉")
-                    print(string.format("-> Pflanze gestoppt: %s (1 in %.1f)", pflanzenName, mathematischeChance))
-                    
-                    getgenv().BremsleitungGezogen = true
-                    getgenv().AutoRollByRarity = false
-                    Connection:Disconnect() -- Reißt den Wachhund ab
+                if matchFound then
+                    print("🎉 HIT GESTOPPT BEI: " .. name .. " (" .. rStr .. ")")
+                    getgenv().AutoRollActive = false
+                    ToggleBtn.BackgroundColor3 = Color3.fromRGB(40, 15, 15)
+                    ToggleBtn.Text = "AUTO-ROLL: OFF"
+                    ToggleBtn.TextColor3 = Color3.fromRGB(255, 100, 100)
                     break
                 end
             end
@@ -82,14 +190,11 @@ Connection = RollEvent.OnClientEvent:Connect(function(tabelleVonServer)
     end
 end)
 
--- 3. DER UNAUFHALTBARE BRUTE-FORCE LOOP
 task.spawn(function()
-    print("🤖 Loop läuft stabil... Suche alles ab 1 in " .. tostring(MindestChance))
-    while getgenv().AutoRollByRarity and not getgenv().BremsleitungGezogen do
-        pcall(function()
-            RollEvent:FireServer()
-        end)
-        task.wait(0.35) -- Sicherer Intervall gegen Over-Rolling und Kicks
+    while true do
+        if getgenv().AutoRollActive then
+            pcall(function() RollEvent:FireServer() end)
+        end
+        task.wait(0.35)
     end
-    print("❌ Loop beendet.")
 end)
